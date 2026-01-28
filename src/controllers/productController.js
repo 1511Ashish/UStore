@@ -31,18 +31,34 @@ function buildProductFilter(query) {
   if (query.isActive !== undefined) {
     filter.isActive = query.isActive === 'true';
   }
-  if (query.size) {
-    filter.sizes = query.size;
-  }
-  if (query.color) {
-    filter.colors = query.color;
+  if (query.size || query.color) {
+    const variantMatch = {};
+    if (query.size) variantMatch.size = query.size;
+    if (query.color) variantMatch.color = query.color;
+    filter.variants = { $elemMatch: variantMatch };
   }
   if (query.minPrice || query.maxPrice) {
-    filter.price = {};
-    if (query.minPrice) filter.price.$gte = Number(query.minPrice);
-    if (query.maxPrice) filter.price.$lte = Number(query.maxPrice);
+    filter['pricing.sellingPrice'] = {};
+    if (query.minPrice) filter['pricing.sellingPrice'].$gte = Number(query.minPrice);
+    if (query.maxPrice) filter['pricing.sellingPrice'].$lte = Number(query.maxPrice);
   }
   return filter;
+}
+
+function normalizeImages(images, fallbackAlt) {
+  if (!Array.isArray(images)) return [];
+  return images
+    .map((img) => {
+      if (!img) return null;
+      if (typeof img === 'string') {
+        return { url: img, alt: fallbackAlt || '' };
+      }
+      return {
+        url: img.url,
+        alt: img.alt || fallbackAlt || ''
+      };
+    })
+    .filter((img) => img && img.url);
 }
 
 async function createProduct(req, res) {
@@ -50,44 +66,44 @@ async function createProduct(req, res) {
     const {
       name,
       description,
-      price,
+      pricing,
       category,
       brand,
-      sku,
-      sizes,
-      colors,
       material,
       gender,
       images,
       image,
-      stock,
-      discountPercent,
+      variants,
+      rating,
+      shipping,
+      policies,
       tags,
       isActive
     } = req.body;
 
-    if (!name || price === undefined || !category) {
-      return res.status(400).json({ message: 'Name, price, and category are required' });
+    if (!name || !category || !pricing?.mrp || !pricing?.sellingPrice) {
+      return res
+        .status(400)
+        .json({ message: 'Name, category, pricing.mrp, and pricing.sellingPrice are required' });
     }
 
     const imageUrl = await uploadImageIfProvided(image);
-    const normalizedImages = Array.isArray(images) ? [...images] : [];
-    if (imageUrl) normalizedImages.push(imageUrl);
+    const normalizedImages = normalizeImages(images, name);
+    if (imageUrl) normalizedImages.push({ url: imageUrl, alt: name || '' });
 
     const product = await Product.create({
       name,
       description,
-      price,
+      pricing,
       category,
       brand,
-      sku,
-      sizes,
-      colors,
       material,
       gender,
       images: normalizedImages,
-      stock,
-      discountPercent,
+      variants,
+      rating,
+      shipping,
+      policies,
       tags,
       isActive
     });
@@ -139,17 +155,23 @@ async function getProductById(req, res) {
 
 async function updateProduct(req, res) {
   try {
+    if (req.body.images) {
+      req.body.images = normalizeImages(req.body.images, req.body.name || '');
+    }
     if (req.body.image) {
       const imageUrl = await uploadImageIfProvided(req.body.image);
-      if (Array.isArray(req.body.images)) {
-        req.body.images = [...req.body.images, imageUrl];
+      const alt = req.body.imageAlt || req.body.name || '';
+      const incomingImages = normalizeImages(req.body.images, alt);
+      if (incomingImages.length) {
+        req.body.images = [...incomingImages, { url: imageUrl, alt }];
       } else {
-        const existing = await Product.findById(req.params.id).select('images');
+        const existing = await Product.findById(req.params.id).select('images name');
         const existingImages = existing?.images ? [...existing.images] : [];
-        existingImages.push(imageUrl);
+        existingImages.push({ url: imageUrl, alt: alt || existing?.name || '' });
         req.body.images = existingImages;
       }
       delete req.body.image;
+      delete req.body.imageAlt;
     }
 
     const product = await Product.findByIdAndUpdate(req.params.id, req.body, {
