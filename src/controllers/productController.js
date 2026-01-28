@@ -174,7 +174,7 @@ async function deleteProduct(req, res) {
     if (!product) {
       return res.status(404).json({ message: 'Product not found' });
     }
-    return res.status(200).json({ message: 'Product deleted' });
+    return res.status(200).json({ message: 'Product deleted successfully' });
   } catch (err) {
     return res.status(400).json({ message: 'Invalid product id' });
   }
