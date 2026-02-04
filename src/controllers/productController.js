@@ -1,5 +1,6 @@
 const Product = require('../models/Product');
 const { cloudinary, isConfigured } = require('../config/cloudinary');
+const { logActivity } = require('../utils/activityLogger');
 
 async function uploadImageIfProvided(image) {
   if (!image) return null;
@@ -108,12 +109,23 @@ async function createProduct(req, res) {
       isActive
     });
 
+    if (req.user?.role === 'seller') {
+      logActivity({
+        sellerId: req.user.id,
+        action: 'product_create',
+        entityType: 'Product',
+        entityId: product._id,
+        entityName: product.name,
+        metadata: { ip: req.ip, userAgent: req.headers['user-agent'] || '' }
+      });
+    }
+
     return res.status(201).json(product);
   } catch (err) {
     if (err.code === 'CLOUDINARY_NOT_CONFIGURED') {
       return res.status(500).json({ message: 'Cloudinary is not configured' });
     }
-    return res.status(500).json({ message: 'Server error' });
+    return res.status(500).json({ message: err.message });
   }
 }
 
@@ -137,7 +149,7 @@ async function getProducts(req, res) {
       pages: Math.ceil(total / limit)
     });
   } catch (err) {
-    return res.status(500).json({ message: 'Server error' });
+    return res.status(500).json({ message: err.message });
   }
 }
 
@@ -181,6 +193,18 @@ async function updateProduct(req, res) {
     if (!product) {
       return res.status(404).json({ message: 'Product not found' });
     }
+
+    if (req.user?.role === 'seller') {
+      logActivity({
+        sellerId: req.user.id,
+        action: 'product_update',
+        entityType: 'Product',
+        entityId: product._id,
+        entityName: product.name,
+        metadata: { changes: req.body, ip: req.ip, userAgent: req.headers['user-agent'] || '' }
+      });
+    }
+
     return res.status(200).json(product);
   } catch (err) {
     if (err.code === 'CLOUDINARY_NOT_CONFIGURED') {
@@ -196,6 +220,18 @@ async function deleteProduct(req, res) {
     if (!product) {
       return res.status(404).json({ message: 'Product not found' });
     }
+
+    if (req.user?.role === 'seller') {
+      logActivity({
+        sellerId: req.user.id,
+        action: 'product_delete',
+        entityType: 'Product',
+        entityId: product._id,
+        entityName: product.name,
+        metadata: { ip: req.ip, userAgent: req.headers['user-agent'] || '' }
+      });
+    }
+
     return res.status(200).json({ message: 'Product deleted successfully' });
   } catch (err) {
     return res.status(400).json({ message: 'Invalid product id' });
